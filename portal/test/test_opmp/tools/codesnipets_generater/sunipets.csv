@@ -1,0 +1,3 @@
+btnp,"<button class='c-btn-primary'>ボタン</button>","プライマリーボタン"
+link-ext,"<a href='#' class='c-link'>外部リンク</a>","外部リンクのスタイル"
+card,"<div class='c-card'><p>カードの内容</p></div>","カードコンポーネント"

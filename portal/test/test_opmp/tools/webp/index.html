@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>WebPコンバーター</title>
+	<!-- Bulma CSS の読み込み -->
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+	<style>
+		body {
+			padding-top: 2rem;
+		}
+		#dropArea {
+			border: 2px dashed #ccc;
+			padding: 2rem;
+			text-align: center;
+			margin: 1rem 0;
+			cursor: pointer;
+		}
+		.preview-container {
+			display: flex;
+			justify-content: center;
+			gap: 2rem;
+			margin-top: 2rem;
+		}
+		.image-preview-container {
+			flex: 1;
+			max-width: 100%;
+			object-fit: contain;
+		}
+		.quality-value {
+			text-align: center;
+			margin-top: 0.5rem;
+			font-weight: bold;
+		}
+		input[type="range"] {
+			width: 100%;
+			margin: 0.5rem 0;
+		}
+		.image-item {
+			margin-bottom: 2rem;
+			padding: 1rem;
+			border: 1px solid #eee;
+			border-radius: 4px;
+		}
+		.image-info {
+			margin-bottom: 1rem;
+			font-size: 0.9rem;
+		}
+		.image-name {
+			font-weight: bold;
+			margin-bottom: 0.5rem;
+		}
+		.size-info {
+			display: flex;
+			justify-content: space-between;
+			margin-bottom: 0.5rem;
+		}
+	</style>
+</head>
+<body class="is-size-6">
+	<header class="section">
+		<div class="container">
+			<h1 class="title has-text-centered is-3">WebPコンバーター</h1>
+		</div>
+	</header>
+
+	<main class="section">
+		<div class="container">
+			<div class="columns is-centered">
+				<div class="column is-half">
+					<div id="dropArea" class="box">ここに画像をドラッグ&ドロップするか、クリックしてファイルを選択してください</div>
+					<input type="file" id="imageInput" accept="image/*" multiple hidden>
+					
+					<div class="field">
+						<label class="label" for="qualityInput">画質をスライダーで調整してください</label>
+						<div class="control">
+							<input type="range" id="qualityInput" class="slider" min="0" max="1" step="0.1" value="0.8">
+							<div class="quality-value"><span id="qualityValue">0.8</span></div>
+						</div>
+					</div>
+
+					<div class="field is-grouped is-grouped-centered">
+						<div class="control">
+							<button id="convertButton" class="button is-primary" disabled>WebPに変換</button>
+						</div>
+						<div class="control">
+							<button id="clearButton" class="button is-danger" disabled>クリア</button>
+						</div>
+						<div class="control">
+							<button id="downloadButton" class="button is-link" style="display: none;">変換した画像をダウンロードする</button>
+						</div>
+					</div>
+
+					<div class="preview-container">
+						<div class="image-preview-container">
+							<div id="originalImagePreview"></div>
+						</div>
+						<div class="image-preview-container">
+							<div id="convertedImagePreview"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</main>
+
+	<!-- モーダルウィンドウ -->
+	<div id="messageModal" class="modal">
+		<div class="modal-background"></div>
+		<div class="modal-content">
+			<div class="box">
+				<p id="modalMessage"></p>
+				<button class="button is-primary modal-close-button">OK</button>
+			</div>
+		</div>
+		<button class="modal-close is-large" aria-label="close"></button>
+	</div>
+
+	<!-- フッター -->
+	<footer class="section">
+		<div class="container has-text-centered">
+			<p>&copy;nabeya Inc.</p>
+		</div>
+	</footer>
+
+	<script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.5.0/jszip.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+	<script>
+	document.addEventListener('DOMContentLoaded', () => {
+		// jQueryを使用して選択されたファイルを保持するグローバル変数
+		let selectedFiles = [];
+
+		// 画像サイズの最大値を定義（例：5MB）
+		const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+
+		// 画質設定のデフォルト値とステップ値を定義
+		const DEFAULT_QUALITY = 0.8; // デフォルトの画質
+		const QUALITY_STEP = 0.1; // 画質の調整ステップ
+		const MIN_QUALITY = 0.1; // 最小画質
+		const MAX_QUALITY = 1.0; // 最大画質
+
+		// モーダル関連の関数
+		function showModal(message) {
+			$('#modalMessage').text(message);
+			$('#messageModal').addClass('is-active');
+		}
+
+		function hideModal() {
+			$('#messageModal').removeClass('is-active');
+		}
+
+		// モーダルを閉じるボタンのイベントハンドラ
+		$('.modal-close, .modal-close-button, .modal-background').on('click', hideModal);
+
+		// クリアボタンのイベントハンドラ
+		$('#clearButton').on('click', function() {
+			selectedFiles = [];
+			$('#originalImagePreview').empty();
+			$('#convertedImagePreview').empty();
+			$('#downloadButton').hide();
+			$('#imageInput').val('');
+			$('#convertButton').prop('disabled', true);
+			$('#clearButton').prop('disabled', true);
+		});
+
+		function processFiles(files) {
+			// ファイルサイズチェックを行い、制限を超えている場合はモーダルを表示
+			for (let file of files) {
+				if (file.size > MAX_IMAGE_SIZE) {
+					const maxSizeMB = MAX_IMAGE_SIZE / (1024 * 1024);
+					showModal('ファイルサイズが大きすぎます（最大' + maxSizeMB + 'MB）: ' + file.name);
+					return;
+				}
+			}
+
+			selectedFiles = files;
+			$('#originalImagePreview').empty();
+
+			$.each(files, function(i, file) {
+				const imageItem = $('<div>').addClass('image-item');
+				const imageInfo = $('<div>').addClass('image-info');
+				const imageName = $('<div>').addClass('image-name').text(file.name);
+				const sizeInfo = $('<div>').addClass('size-info');
+				sizeInfo.append($('<span>').text('元のサイズ: ' + formatBytes(file.size)));
+				
+				imageInfo.append(imageName, sizeInfo);
+				imageItem.append(imageInfo);
+				displayImagePreview(file, null, imageItem);
+				$('#originalImagePreview').append(imageItem);
+			});
+
+			// ファイルが選択されたらボタンを活性化
+			$('#convertButton').prop('disabled', false);
+			$('#clearButton').prop('disabled', false);
+			// ファイル選択時にダウンロードボタンを非表示にする
+			$('#downloadButton').hide();
+		}
+
+		function checkFileSize(files) {
+			for (let file of files) {
+				if (file.size > MAX_IMAGE_SIZE) {
+					const maxSizeMB = MAX_IMAGE_SIZE / (1024 * 1024);
+					showModal('ファイルサイズが大きすぎます（最大' + maxSizeMB + 'MB）: ' + file.name);
+					return false;
+				}
+			}
+			return true;
+		}
+
+		// ドロップエリアのイベントハンドラ設定
+		$('#dropArea')
+			.on('click', function() {
+				$('#imageInput').click();
+			})
+			.on('dragover', function(e) {
+				e.preventDefault();
+				e.stopPropagation();
+				$(this).addClass('hover');
+			})
+			.on('dragleave', function(e) {
+				e.preventDefault();
+				e.stopPropagation();
+				$(this).removeClass('hover');
+			})
+			.on('drop', function(e) {
+				e.preventDefault();
+				e.stopPropagation();
+				$(this).removeClass('hover');
+				let files = e.originalEvent.dataTransfer.files;
+				if (checkFileSize(files)) {
+					processFiles(files);
+				}
+			});
+
+		$('#imageInput').on('change', function() {
+			if (checkFileSize(this.files)) {
+				processFiles(this.files);
+			}
+		});
+
+		function getFormattedFileName(prefix, extension) {
+			const now = new Date();
+			const datePart = now.toISOString().slice(0,19).replace(/[-:]/g, '').replace('T', '_');
+			return prefix + '_' + datePart + '.' + extension;
+		}
+
+		async function convertToWebP(file, initialQuality) {
+			return new Promise((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = function(event) {
+					const img = new Image();
+					img.onload = async function() {
+						const canvas = document.createElement('canvas');
+						canvas.width = img.width;
+						canvas.height = img.height;
+						const ctx = canvas.getContext('2d');
+						ctx.drawImage(img, 0, 0);
+
+						// 最適な画質を見つけるための再帰的な関数
+						async function findOptimalQuality(minQuality, maxQuality, targetSize) {
+							const currentQuality = (minQuality + maxQuality) / 2;
+							
+							try {
+								const blob = await new Promise(resolve => {
+									canvas.toBlob(resolve, 'image/webp', currentQuality);
+								});
+
+								if (Math.abs(maxQuality - minQuality) < 0.01) {
+									return blob;
+								}
+
+								if (blob.size > targetSize) {
+									return findOptimalQuality(minQuality, currentQuality, targetSize);
+								} else {
+									return findOptimalQuality(currentQuality, maxQuality, targetSize);
+								}
+							} catch (error) {
+								throw new Error('WebP変換に失敗しました');
+							}
+						}
+
+						try {
+							// 元のファイルサイズより小さくなるまで画質を調整
+							const optimalBlob = await findOptimalQuality(MIN_QUALITY, initialQuality, file.size);
+							resolve(optimalBlob);
+						} catch (error) {
+							reject(error);
+						}
+					};
+					img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+					img.src = event.target.result;
+				};
+				reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
+				reader.readAsDataURL(file);
+			});
+		}
+
+		$('#convertButton').on('click', async function() {
+			if (!selectedFiles.length) {
+				showModal('変換する画像を選択してください。');
+				return;
+			}
+
+			showLoadingIndicator('originalImagePreview');
+			showLoadingIndicator('convertedImagePreview');
+
+			const quality = parseFloat($('#qualityInput').val());
+			const zip = new JSZip();
+			const convertedImagePreview = $('#convertedImagePreview');
+			convertedImagePreview.empty();
+
+			try {
+				for (let file of selectedFiles) {
+					const originalSize = file.size;
+					const blob = await convertToWebP(file, quality);
+					
+					if (blob) {
+						if (blob.size >= originalSize) {
+							console.warn('警告: ' + file.name + ' の変換後のサイズが元のサイズより大きくなっています');
+						}
+						zip.file(renameFile(file.name, 'webp'), blob);
+
+						const imageItem = $('<div>').addClass('image-item');
+						const imageInfo = $('<div>').addClass('image-info');
+						const imageName = $('<div>').addClass('image-name').text(file.name);
+						const sizeInfo = $('<div>').addClass('size-info');
+						sizeInfo.append(
+							$('<span>').text('元のサイズ: ' + formatBytes(originalSize)),
+							$('<span>').text('変換後のサイズ: ' + formatBytes(blob.size))
+						);
+						
+						imageInfo.append(imageName, sizeInfo);
+						imageItem.append(imageInfo);
+						displayImagePreview(file, blob, imageItem);
+						convertedImagePreview.append(imageItem);
+					}
+				}
+
+				const content = await zip.generateAsync({type: 'blob'});
+				const downloadButton = $('#downloadButton');
+				downloadButton.show().off('click').on('click', function() {
+					const fileName = getFormattedFileName('webp_converted', 'zip');
+					saveAs(content, fileName);
+				});
+			} catch (error) {
+				console.error('変換処理中にエラーが発生しました:', error);
+				showModal('画像の変換中にエラーが発生しました。');
+			} finally {
+				hideLoadingIndicator('originalImagePreview');
+				hideLoadingIndicator('convertedImagePreview');
+			}
+		});
+
+		function displayImagePreview(file, convertedBlob, containerElement) {
+			const reader = new FileReader();
+			reader.onload = function(e) {
+				const img = $('<img>')
+					.attr('src', e.target.result)
+					.addClass('image-preview')
+					.attr('loading', 'lazy');
+				
+				containerElement.append(img);
+			};
+			reader.readAsDataURL(convertedBlob || file);
+		}
+
+		function showLoadingIndicator(containerId) {
+			const container = $('#' + containerId);
+			container.children().hide();
+			const loadingIndicator = $('<div>')
+				.addClass('loading-indicator')
+				.text('変換中...');
+			container.append(loadingIndicator);
+		}
+
+		function hideLoadingIndicator(containerId) {
+			const container = $('#' + containerId);
+			container.find('.loading-indicator').remove();
+			container.children().show();
+		}
+
+		function formatBytes(bytes, decimals = 2) {
+			if (bytes === 0) return '0 Bytes';
+			const k = 1024;
+			const dm = decimals < 0 ? 0 : decimals;
+			const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+			const i = Math.floor(Math.log(bytes) / Math.log(k));
+			return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+		}
+
+		function renameFile(filename, newExtension) {
+			return filename.split('.').slice(0, -1).join('.') + '.' + newExtension;
+		}
+
+		$(document).ready(function() {
+			$('#qualityInput')
+				.val(DEFAULT_QUALITY)
+				.on('input', function() {
+					$('#qualityValue').text($(this).val());
+				});
+			$('#qualityValue').text(DEFAULT_QUALITY);
+		});
+
+	});
+	</script>
+</body>
+</html>

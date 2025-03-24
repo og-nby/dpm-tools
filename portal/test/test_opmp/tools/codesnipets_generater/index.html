@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>スニペットジェネレーター</title>
+
+    <!-- Googleフォント -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+
+    <!-- Bulma CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+
+    <!-- jQuery & jQuery UI（並び替え機能用） -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            padding-top: 2rem;
+        }
+        #jsonPreview {
+            white-space: pre-wrap;
+            background: #f5f5f5;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow: auto;
+            max-height: 300px;
+        }
+        .snippet-box {
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+        }
+        .snippet-checkbox {
+            margin-right: 10px;
+        }
+        .sortable-list {
+            padding: 0;
+            list-style: none;
+        }
+        .mt-3 {
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ヘッダー -->
+    <header class="section">
+        <div class="container">
+            <div class="columns is-centered">
+                <div class="column is-half">
+                    <h1 class="title has-text-centered is-3">スニペットジェネレーター</h1>
+
+                    <!-- VS Code インポート方法メモ -->
+                    <article class="message is-info mt-3">
+                        <div class="message-header">
+                            <p>VS Code にスニペットをインポートする方法</p>
+                        </div>
+                        <div class="message-body">
+                            <ol>
+                                <li><code>Ctrl + Shift + P</code>（Mac: <code>Cmd + Shift + P</code>）を押す</li>
+                                <li>「<code>Preferences: Configure User Snippets</code>」を検索して選択</li>
+                                <li>スニペットを追加したい言語を選ぶ（例: <code>html.json</code>）</li>
+                                <li>開いた JSON ファイルに作成したスニペットをコピー＆ペースト</li>
+                                <li>保存（<code>Ctrl + S</code> / Mac: <code>Cmd + S</code>）して VS Code を再起動</li>
+                                <li>設定した Prefix を入力し、<code>Tab</code> キーでスニペットを展開</li>
+                            </ol>
+                            <p><strong>💡 メモ:</strong> `global.code-snippets` に保存すると、どの言語でも使えます。</p>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="section">
+        <div class="container">
+            <div class="columns is-centered">
+                <div class="column is-half">
+                    <div class="box">
+                        <div id="errorMessage" class="notification is-danger" style="display: none;"></div>
+
+                        <div class="field">
+                            <label class="label">Prefix（ショートカット）</label>
+                            <div class="control">
+                                <input type="text" id="prefix" class="input" placeholder="例: btn-primary">
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label class="label">Body（展開するコード）</label>
+                            <div class="control">
+                                <textarea id="body" class="textarea" rows="3" placeholder="例: &lt;button class='c-btn-primary'&gt;ボタン&lt;/button&gt;"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label class="label">Description（説明）</label>
+                            <div class="control">
+                                <input type="text" id="description" class="input" placeholder="例: Primary Button">
+                            </div>
+                        </div>
+
+                        <div class="field is-grouped is-grouped-centered mt-3">
+                            <div class="control">
+                                <button id="addSnippet" class="button is-primary">スニペットを追加</button>
+                            </div>
+                        </div>
+
+                        <!-- CSV選択エリアのデザイン修正 -->
+                        <div class="field mt-3">
+                            <label class="label">CSVから一括登録</label>
+                            <div class="file has-name is-fullwidth">
+                                <label class="file-label">
+                                    <input type="file" id="csvInput" class="file-input" accept=".csv">
+                                    <span class="file-cta">
+                                        <span class="file-icon">
+                                            📂
+                                        </span>
+                                        <span class="file-label">ファイルを選択</span>
+                                    </span>
+                                    <span id="csvFileName" class="file-name">選択されていません</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <script>
+                            $(document).ready(function () {
+                                $("#csvInput").change(function () {
+                                    const file = this.files[0];
+                                    if (file) {
+                                        $("#csvFileName").text(file.name);
+                                    } else {
+                                        $("#csvFileName").text("選択されていません");
+                                    }
+                                });
+                            });
+                        </script>
+
+                    </div>
+
+                    <div id="snippetContainer" style="display: none;">
+                        <h2 class="subtitle">スニペット一覧</h2>
+
+                        <label class="checkbox">
+                            <input type="checkbox" id="selectAll"> 全て選択
+                        </label>
+
+                        <ul id="snippetList" class="box sortable-list"></ul>
+
+                        <button id="deleteSelectedSnippets" class="button is-danger mt-3" disabled>選択したスニペットを削除</button>
+
+                        <h2 class="subtitle mt-3">JSONプレビュー</h2>
+
+                        <label class="checkbox">
+                            <input type="checkbox" id="formatJson"> 整形表示
+                        </label>
+
+                        <pre id="jsonPreview" class="box"></pre>
+
+                        <div class="buttons is-centered mt-3">
+                            <button id="copyJson" class="button is-success">コピー</button>
+                            <button id="downloadJson" class="button is-link">ダウンロード</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+	<!-- フッター -->
+	<footer class="section">
+		<div class="container has-text-centered">
+			<p>&copy;nabeya Inc.</p>
+		</div>
+	</footer>
+
+    <script>
+        $(document).ready(function () {
+            let snippets = JSON.parse(localStorage.getItem('snippets')) || {};
+    
+            function updatePreview() {
+                const format = $("#formatJson").is(":checked");
+                $("#jsonPreview").text(JSON.stringify(snippets, null, format ? 2 : 0));
+                localStorage.setItem('snippets', JSON.stringify(snippets));
+                toggleSnippetContainer();
+            }
+    
+            function renderSnippets() {
+                $("#snippetList").empty();
+                Object.keys(snippets).forEach(prefix => {
+                    $("#snippetList").append(`
+                        <li class="snippet-box" data-prefix="${prefix}">
+                            <input type="checkbox" class="snippet-checkbox">
+                            <div>
+                                <strong>${prefix}</strong>
+                                <p><code>${snippets[prefix].body.join("\n")}</code></p>
+                                <p>${snippets[prefix].description}</p>
+                            </div>
+                        </li>
+                    `);
+                });
+                updatePreview();
+            }
+    
+            function toggleSnippetContainer() {
+                if (Object.keys(snippets).length > 0) {
+                    $("#snippetContainer").show();
+                } else {
+                    $("#snippetContainer").hide();
+                }
+            }
+    
+            $("#csvInput").change(function (event) {
+                const file = event.target.files[0];
+                if (!file) return;
+    
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const rows = e.target.result.split("\n");
+                    let newSnippets = {};
+    
+                    rows.forEach(row => {
+                        const values = row.split(",");
+                        if (values.length < 2) return;
+    
+                        const prefix = values[0].trim();
+                        const body = values[1].trim().replace(/^"|"$/g, "");
+                        const description = values.length > 2 ? values[2].trim().replace(/^"|"$/g, "") : "";
+    
+                        if (prefix && body) {
+                            newSnippets[prefix] = {
+                                prefix: prefix,
+                                body: body.includes("\n") ? body.split("\n") : [body],
+                                description: description
+                            };
+                        }
+                    });
+    
+                    if (Object.keys(newSnippets).length === 0) {
+                        alert("CSVのフォーマットが不正です。正しいフォーマットでアップロードしてください。");
+                        return;
+                    }
+    
+                    snippets = { ...snippets, ...newSnippets };
+                    renderSnippets();
+                    alert("CSVファイルのスニペットを正常に登録しました！");
+                };
+    
+                reader.readAsText(file);
+            });
+    
+            $("#addSnippet").click(function () {
+                const prefix = $("#prefix").val().trim();
+                const body = $("#body").val().trim();
+                const description = $("#description").val().trim();
+    
+                if (!prefix || !body) {
+                    $("#errorMessage").text("Prefix と Body は必須です！").show();
+                    return;
+                }
+    
+                $("#errorMessage").hide();
+                snippets[prefix] = {
+                    prefix: prefix,
+                    body: body.includes("\n") ? body.split("\n") : [body],
+                    description: description
+                };
+    
+                renderSnippets();
+                $("#prefix, #body, #description").val("");
+            });
+    
+            $("#deleteSelectedSnippets").click(function () {
+                $(".snippet-checkbox:checked").each(function () {
+                    const prefix = $(this).closest("li").data("prefix");
+                    delete snippets[prefix];
+                });
+                renderSnippets();
+                $("#deleteSelectedSnippets").prop("disabled", true);
+            });
+    
+            $("#selectAll").change(function () {
+                $(".snippet-checkbox").prop("checked", $(this).is(":checked"));
+                $("#deleteSelectedSnippets").prop("disabled", !$(".snippet-checkbox:checked").length);
+            });
+    
+            $(document).on("change", ".snippet-checkbox", function () {
+                $("#deleteSelectedSnippets").prop("disabled", !$(".snippet-checkbox:checked").length);
+            });
+    
+            $("#copyJson").click(function () {
+                navigator.clipboard.writeText($("#jsonPreview").text()).then(() => {
+                    alert("JSON をコピーしました！");
+                });
+            });
+    
+            $("#downloadJson").click(function () {
+                const blob = new Blob([$("#jsonPreview").text()], { type: "application/json" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "snippets.json";
+                a.click();
+            });
+    
+            $("#formatJson").change(updatePreview);
+    
+            toggleSnippetContainer();
+            renderSnippets();
+        });
+    </script>
+    
+
+</body>
+</html>
